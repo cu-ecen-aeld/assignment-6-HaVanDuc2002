@@ -16,6 +16,13 @@ jobs:
           - uses: webfactory/ssh-agent@v0.5.4
             with:
                  ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          - name: Pull build image
+            run: |
+              for i in 1 2 3 4 5; do
+                docker pull cuaesd/aesd-autotest:24-assignment6-yocto && break
+                echo "Pull attempt $i failed, retrying in 15s..."
+                sleep 15
+              done
           - name: Run build
             timeout-minutes: 600
             run: |
@@ -30,6 +37,13 @@ jobs:
             if: always()
             run: |
               ssh-add -D
+          - name: Pull test image
+            run: |
+              for i in 1 2 3 4 5; do
+                docker pull cuaesd/aesd-autotest:assignment6-yocto && break
+                echo "Pull attempt $i failed, retrying in 15s..."
+                sleep 15
+              done
           - name: Run full test
             timeout-minutes: 15
             run: |
