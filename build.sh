@@ -34,4 +34,37 @@ else
 fi
 
 set -e
+
+# Remove corrupted sstate manifest files before building
+find tmp/sstate-control/ -name "index-*" -size 0 -delete 2>/dev/null || true
+find tmp/sstate-control/ -name "index-*" -exec grep -lP '[\x80-\xFF]' {} \; -delete 2>/dev/null || true
+
+# Detect and clean recipes whose configure.ac was corrupted by a prior OOM kill
+# (symptom: configure.ac exists but is empty or missing AC_INIT)
+for workdir in tmp/work/x86_64-linux/libxfixes-native tmp/work/cortexa57-poky-linux/gcc; do
+	configure_ac=$(find "$workdir" -maxdepth 4 -name "configure.ac" 2>/dev/null | head -1)
+	if [ -n "$configure_ac" ] && ! grep -q 'AC_INIT' "$configure_ac" 2>/dev/null; then
+		recipe=$(basename "$workdir")
+		echo "Corrupted configure.ac detected in $recipe — running cleansstate"
+		bitbake -c cleansstate "$recipe" || true
+	fi
+done
+
+# Limit parallelism to avoid OOM on low-memory hosts (8GB RAM)
+# Always enforce via sed so re-runs pick up changes
+if ! grep -q 'BB_NUMBER_THREADS' conf/local.conf; then
+	cat >> conf/local.conf << 'EOF'
+
+# Limit parallel tasks and make jobs to reduce peak memory usage
+BB_NUMBER_THREADS = "2"
+PARALLEL_MAKE = "-j 2"
+# Reduce GCC linker memory usage
+PACKAGECONFIG:remove:pn-gcc = "lto"
+EOF
+else
+	sed -i 's/BB_NUMBER_THREADS = "[0-9]*"/BB_NUMBER_THREADS = "2"/' conf/local.conf
+	sed -i 's/PARALLEL_MAKE = "-j [0-9]*"/PARALLEL_MAKE = "-j 2"/' conf/local.conf
+fi
+echo "BB_NUMBER_THREADS and PARALLEL_MAKE set to 2"
+
 bitbake core-image-aesd
