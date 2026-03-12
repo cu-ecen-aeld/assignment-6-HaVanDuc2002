@@ -1,0 +1,48 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          misc-modules
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Load/unload the LDD3 misc kernel modules
+### END INIT INFO
+
+# List of modules in misc-modules to load (subset that are safe to load at boot)
+MODULES="hello faulty"
+MODDIR="/lib/modules/$(uname -r)/extra"
+
+do_start() {
+    echo "Loading misc-modules..."
+    for mod in ${MODULES}; do
+        if insmod ${MODDIR}/${mod}.ko 2>/dev/null; then
+            echo "  Loaded ${mod}"
+        else
+            echo "  Failed to load ${mod} (may not be present, continuing)"
+        fi
+    done
+    echo "Done."
+}
+
+do_stop() {
+    echo "Unloading misc-modules..."
+    for mod in $(echo ${MODULES} | tr ' ' '\n' | tac | tr '\n' ' '); do
+        rmmod ${mod} 2>/dev/null && echo "  Unloaded ${mod}" || true
+    done
+    echo "Done."
+}
+
+case "$1" in
+    start)
+        do_start
+        ;;
+    stop)
+        do_stop
+        ;;
+    *)
+        echo "Usage: $0 {start|stop}"
+        exit 1
+        ;;
+esac
+
+exit 0

@@ -1,0 +1,76 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          scull
+# Required-Start:    $local_fs
+# Required-Stop:     $local_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Load/unload the scull kernel module
+### END INIT INFO
+
+DEVICE="scull"
+MODULE="scull"
+SECTION="extra"
+MODE="664"
+
+# Group: use staff if available, otherwise wheel
+if grep -q '^staff:' /etc/group; then
+    GROUP="staff"
+else
+    GROUP="root"
+fi
+
+MODDIR="/lib/modules/$(uname -r)/${SECTION}"
+
+do_start() {
+    echo "Loading ${MODULE} module..."
+    if insmod ${MODDIR}/${MODULE}.ko 2>/dev/null; then
+        MAJOR=$(awk "\$2==\"${DEVICE}\" {print \$1}" /proc/devices)
+        if [ -n "${MAJOR}" ]; then
+            # Create device nodes for scull0-scull3
+            for i in 0 1 2 3; do
+                rm -f /dev/${DEVICE}${i}
+                mknod /dev/${DEVICE}${i} c ${MAJOR} ${i}
+                chgrp ${GROUP} /dev/${DEVICE}${i}
+                chmod ${MODE} /dev/${DEVICE}${i}
+            done
+            # scullpipe0-scullpipe3
+            PIPE_MAJOR=$(awk "\$2==\"${DEVICE}pipe\" {print \$1}" /proc/devices)
+            if [ -n "${PIPE_MAJOR}" ]; then
+                for i in 0 1 2 3; do
+                    rm -f /dev/${DEVICE}pipe${i}
+                    mknod /dev/${DEVICE}pipe${i} c ${PIPE_MAJOR} ${i}
+                    chgrp ${GROUP} /dev/${DEVICE}pipe${i}
+                    chmod ${MODE} /dev/${DEVICE}pipe${i}
+                done
+            fi
+        fi
+        echo "Done."
+    else
+        echo "Failed to load ${MODULE}!"
+        exit 1
+    fi
+}
+
+do_stop() {
+    echo "Unloading ${MODULE} module..."
+    rm -f /dev/${DEVICE}[0-3] /dev/${DEVICE}pipe[0-3] /dev/${DEVICE}single \
+          /dev/${DEVICE}uid /dev/${DEVICE}wuid /dev/${DEVICE}priv
+    rmmod ${MODULE} 2>/dev/null || true
+    echo "Done."
+}
+
+case "$1" in
+    start)
+        do_start
+        ;;
+    stop)
+        do_stop
+        ;;
+    *)
+        echo "Usage: $0 {start|stop}"
+        exit 1
+        ;;
+esac
+
+exit 0
