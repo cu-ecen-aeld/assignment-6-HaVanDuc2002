@@ -2,54 +2,79 @@
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
-# TODO: Set this  with the path to your assignments rep.  Use ssh protocol and see lecture notes
-# about how to setup ssh-agent for passwordless access
-SRC_URI = "git://git@github.com/cu-ecen-aeld/assignments-3-and-later-HaVanDuc2002;protocol=ssh;branch=main"
+# Inherit module for kernel module build support and update-rc.d for init scripts
+inherit module update-rc.d
+
+SRC_URI = "git://git@github.com/cu-ecen-aeld/assignments-3-and-later-HaVanDuc2002;protocol=ssh;branch=main \
+			file://aesd-char-driver"
 
 PV = "1.0+git${SRCPV}"
-# TODO: set to reference a specific commit hash in your assignment repo
-SRCREV = "f76386151c4c2d0b179d5398e3520a6ad10bb5c3"
+SRCREV = "5760e789d9fa2ff7223be5596533dd241cbebdda"
 
-# This sets your staging directory based on WORKDIR, where WORKDIR is defined at 
-# https://docs.yoctoproject.org/ref-manual/variables.html?highlight=workdir#term-WORKDIR
-# We reference the "server" directory here to build from the "server" directory
-# in your assignments repo
-S = "${WORKDIR}/git/server"
+# Source root: both server/ and aesd-char-driver/ live under WORKDIR/git
+S = "${WORKDIR}/git"
 
-# TODO: Add the aesdsocket application and any other files you need to install
-# See https://git.yoctoproject.org/poky/plain/meta/conf/bitbake.conf?h=kirkstone
-FILES:${PN} += "${bindir}/aesdsocket"
-FILES:${PN} += "${sysconfdir}/init.d/aesdsocket"
+# Kernel module is in the aesd-char-driver subdirectory
+EXTRA_OEMAKE += "-C ${STAGING_KERNEL_DIR} M=${S}/aesd-char-driver"
 
 # Pass linker flags needed by aesdsocket
 TARGET_LDFLAGS += "-pthread -lrt"
 
-# Use update-rc.d bbclass to register the SysV init script
-inherit update-rc.d
+# Capture LDFLAGS at parse time before the module bbclass clears it at task time.
+# (module.bbclass sets os.environ['LDFLAGS']="" so the shell sees an empty LDFLAGS)
+AESDSOCKET_LDFLAGS = "${LDFLAGS}"
 
-INITSCRIPT_NAME = "aesdsocket"
-INITSCRIPT_PARAMS = "defaults 80 20"
+# ─── Package split ───────────────────────────────────────────────────────────
+# Split the driver init script into its own package so both init scripts
+# can each be registered via update-rc.d with independent priorities.
+PACKAGES =+ "${PN}-driver"
+
+FILES:${PN}-driver  = "${sysconfdir}/init.d/aesd-char-driver"
+FILES:${PN}        += "${bindir}/aesdsocket"
+FILES:${PN}        += "${sysconfdir}/init.d/aesdsocket"
+
+# Main package pulls in the driver sub-package
+RDEPENDS:${PN} += "${PN}-driver"
+
+# ─── init scripts ────────────────────────────────────────────────────────────
+# aesd-char-driver starts first (S90) so /dev/aesdchar exists before aesdsocket
+INITSCRIPT_PACKAGES = "${PN}-driver ${PN}"
+
+INITSCRIPT_NAME:${PN}-driver   = "aesd-char-driver"
+INITSCRIPT_PARAMS:${PN}-driver = "defaults 90 10"
+
+INITSCRIPT_NAME:${PN}          = "aesdsocket"
+INITSCRIPT_PARAMS:${PN}        = "defaults 92 20"
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 do_configure () {
 	:
 }
 
 do_compile () {
-	oe_runmake
+	# Build the aesdchar kernel module.
+	# Use a subshell so unset doesn't pollute the environment for the server build.
+	( unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS; oe_runmake ${EXTRA_OEMAKE} modules )
+
+	# Build the aesdsocket server application.
+	# Pass LDFLAGS explicitly because module.bbclass clears os.environ['LDFLAGS'].
+	oe_runmake -C ${S}/server LDFLAGS="${AESDSOCKET_LDFLAGS}"
 }
 
 do_install () {
-	# TODO: Install your binaries/scripts here.
-	# Be sure to install the target directory with install -d first
-	# Yocto variables ${D} and ${S} are useful here, which you can read about at 
-	# https://docs.yoctoproject.org/ref-manual/variables.html?highlight=workdir#term-D
-	# and
-	# https://docs.yoctoproject.org/ref-manual/variables.html?highlight=workdir#term-S
-	# See example at https://github.com/cu-ecen-aeld/ecen5013-yocto/blob/ecen5013-hello-world/meta-ecen5013/recipes-ecen5013/ecen5013-hello-world/ecen5013-hello-world_git.bb
-	install -d ${D}${bindir}
-	install -m 0755 ${S}/aesdsocket ${D}${bindir}/
+	# Install the aesdchar kernel module into the staging rootfs
+	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS
+	oe_runmake ${EXTRA_OEMAKE} INSTALL_MOD_PATH="${D}" modules_install
 
-	# Install the SysV init / start-stop script to /etc/init.d/
+	# Install the aesdsocket binary
+	install -d ${D}${bindir}
+	install -m 0755 ${S}/server/aesdsocket ${D}${bindir}/
+
+	# Install both SysV init scripts
 	install -d ${D}${sysconfdir}/init.d
-	install -m 0755 ${S}/aesdsocket-start-stop ${D}${sysconfdir}/init.d/aesdsocket
+	install -m 0755 ${S}/server/aesdsocket-start-stop ${D}${sysconfdir}/init.d/aesdsocket
+	install -m 0755 ${WORKDIR}/aesd-char-driver ${D}${sysconfdir}/init.d/aesd-char-driver
 }
+
+RPROVIDES:${PN} += "kernel-module-aesdchar"

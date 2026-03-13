@@ -1,0 +1,43 @@
+#!/bin/sh
+# aesd-char-driver - SysV init script
+# Loads/unloads the aesdchar kernel module.
+# The driver uses device_create() so udev/mdev automatically
+# creates and removes /dev/aesdchar on insert/remove.
+
+MODULE=aesdchar
+
+do_start() {
+    echo "Loading ${MODULE} driver..."
+    modprobe ${MODULE}
+    if [ $? -ne 0 ]; then
+        echo "Failed to load ${MODULE}"
+        return 1
+    fi
+    echo "Loaded ${MODULE}"
+}
+
+do_stop() {
+    echo "Unloading ${MODULE} driver..."
+    rmmod ${MODULE} 2>/dev/null && echo "Unloaded ${MODULE}" \
+        || echo "${MODULE} not loaded, nothing to do"
+}
+
+case "$1" in
+    start)
+        do_start
+        ;;
+    stop)
+        do_stop
+        ;;
+    restart|reload)
+        do_stop
+        sleep 1
+        do_start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0
