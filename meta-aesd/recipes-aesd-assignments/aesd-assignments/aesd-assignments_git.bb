@@ -9,7 +9,7 @@ SRC_URI = "git://git@github.com/cu-ecen-aeld/assignments-3-and-later-HaVanDuc200
 			file://aesd-char-driver"
 
 PV = "1.0+git${SRCPV}"
-SRCREV = "5760e789d9fa2ff7223be5596533dd241cbebdda"
+SRCREV = "bfb7f8f1e418d87632bf85d52fd31be41b09fdc5"
 
 # Source root: both server/ and aesd-char-driver/ live under WORKDIR/git
 S = "${WORKDIR}/git"
